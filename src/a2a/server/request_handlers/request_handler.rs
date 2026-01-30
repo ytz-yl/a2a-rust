@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use futures::stream::BoxStream;
 
 use crate::a2a::models::*;
-use crate::a2a::core_types::Message;
+use crate::a2a::core_types::{Message, Role, TaskState, TaskStatus, Part, PartRoot};
 use crate::a2a::server::context::ServerCallContext;
 use crate::a2a::error::A2AError;
 
@@ -165,6 +165,59 @@ impl RequestHandler for MockRequestHandler {
     ) -> Result<MessageSendResult, A2AError> {
         // Return the message back as a mock response
         Ok(MessageSendResult::Message(params.message))
+    }
+
+    async fn on_message_send_stream(
+        &self,
+        params: MessageSendParams,
+        _context: Option<&ServerCallContext>,
+    ) -> Result<BoxStream<'static, Result<Event, A2AError>>, A2AError> {
+        use futures::stream;
+        
+        // Create a simple mock stream that returns a few events
+        let message = params.message.clone();
+        let stream = stream::iter(vec![
+            // Task status update - working
+            Ok(Event::TaskStatusUpdate(TaskStatusUpdateEvent {
+                task_id: "mock-task-123".to_string(),
+                context_id: message.context_id.clone().unwrap_or_else(|| "mock-context".to_string()),
+                status: TaskStatus::new(TaskState::Working),
+                r#final: false,
+                metadata: None,
+                kind: "status-update".to_string(),
+            })),
+            // Message response
+            Ok(Event::Message(Message {
+                message_id: format!("response-{}", message.message_id),
+                context_id: message.context_id.clone(),
+                task_id: Some("mock-task-123".to_string()),
+                role: Role::Agent,
+                parts: vec![
+                    Part::text(format!("Mock response to: {}", 
+                        if let Some(PartRoot::Text(text_part)) = message.parts.first().map(|p| p.root()) {
+                            text_part.text.clone()
+                        } else {
+                            "your message".to_string()
+                        }
+                    ))
+                ],
+                metadata: None,
+                extensions: None,
+                reference_task_ids: None,
+                kind: "message".to_string(),
+            })),
+            // Task status update - completed
+            Ok(Event::TaskStatusUpdate(TaskStatusUpdateEvent {
+                task_id: "mock-task-123".to_string(),
+                context_id: message.context_id.clone().unwrap_or_else(|| "mock-context".to_string()),
+                status: TaskStatus::new(TaskState::Completed),
+                r#final: true,
+                metadata: None,
+                kind: "status-update".to_string(),
+            })),
+        ]);
+        
+        Ok(Box::pin(stream))
     }
 
     async fn on_set_task_push_notification_config(

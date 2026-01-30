@@ -14,6 +14,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use futures::StreamExt;
 use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -348,11 +349,95 @@ async fn handle_jsonrpc_request(
         }
     };
 
+    // Check if this is a streaming request
+    let method = json_value.get("method").and_then(|m| m.as_str()).unwrap_or("");
+    let is_streaming = method == "message/stream";
+
+    if is_streaming {
+        // Handle streaming request
+        handle_streaming_request(state, headers, json_value).await
+    } else {
+        // Handle non-streaming request
+        handle_non_streaming_request(state, headers, json_value).await
+    }
+}
+
+/// Handle streaming requests with SSE response
+async fn handle_streaming_request(
+    state: ServerState,
+    headers: HeaderMap,
+    json_value: Value,
+) -> Response {
+    // Build server call context
+    let context = state.context_builder.build(&headers).await;
+
+    // Parse the JSON-RPC request to get the ID
+    let jsonrpc_request = match state.handler.parse_request(json_value.clone()) {
+        Ok(req) => req,
+        Err(e) => {
+            return error_response(
+                None,
+                &e,
+            );
+        }
+    };
+
+    // Get the streaming SSE stream
+    match state.handler.handle_message_stream_sse(jsonrpc_request, &context).await {
+        Ok(sse_stream) => {
+            let mut response_headers = HeaderMap::new();
+            
+            // Set SSE headers
+            response_headers.insert("Content-Type", HeaderValue::from_static("text/event-stream"));
+            response_headers.insert("Cache-Control", HeaderValue::from_static("no-cache"));
+            response_headers.insert("Connection", HeaderValue::from_static("keep-alive"));
+            
+            // Add extension headers if any
+            let extensions = context.get_activated_extensions();
+            if !extensions.is_empty() {
+                let ext_header = extensions.join(",");
+                response_headers.insert(
+                    "A2A-Extensions",
+                    HeaderValue::from_str(&ext_header).unwrap(),
+                );
+            }
+
+            // Convert SSE stream to Axum response
+            let body_stream = sse_stream.map(|result| {
+                match result {
+                    Ok(sse_data) => Ok::<axum::body::Bytes, axum::Error>(axum::body::Bytes::from(sse_data)),
+                    Err(_) => Ok::<axum::body::Bytes, axum::Error>(axum::body::Bytes::from("data: {\"error\":\"Stream error\"}\n\n")),
+                }
+            });
+
+            let response = axum::response::Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "text/event-stream")
+                .header("Cache-Control", "no-cache")
+                .header("Connection", "keep-alive")
+                .body(axum::body::Body::from_stream(body_stream))
+                .unwrap();
+
+            response
+        }
+        Err(error) => error_response(
+            json_value.get("id").cloned(),
+            &error,
+        ),
+    }
+}
+
+/// Handle non-streaming requests with JSON response
+async fn handle_non_streaming_request(
+    state: ServerState,
+    headers: HeaderMap,
+    json_value: Value,
+) -> Response {
     // Build server call context
     let context = state.context_builder.build(&headers).await;
 
     // Handle the request
-    match state.handler.handle_request(json_value, &context).await {
+    match state.handler.handle_request(json_value.clone(), &context).await {
         Ok(response) => {
             let mut response_headers = HeaderMap::new();
             
@@ -368,7 +453,7 @@ async fn handle_jsonrpc_request(
 
             (StatusCode::OK, response_headers, Json(response)).into_response()
         }
-        Err(error) => error_response(None, &error),
+        Err(error) => error_response(json_value.get("id").cloned(), &error),
     }
 }
 
