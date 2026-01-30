@@ -1,10 +1,10 @@
 # A2A Protocol Rust Implementation
 
-这是 A2A (Agent-to-Agent) 协议的 Rust 实现，致力于复刻 Python 版本 [a2a-python](https://github.com/gaia-xyz/a2a-python) 的功能。该实现使 AI 代理和客户端能够使用明确定义的数据结构集和消息类型进行通信。
+这是 A2A (Agent-to-Agent) 协议的 Rust 实现，致力于复刻 Python 版本 [a2a-python](https://github.com/a2aproject/a2a-python) 的功能。该实现使 AI 代理和客户端能够使用明确定义的数据结构集和消息类型进行通信。
 
 ## 🎯 项目目标
 
-本项目旨在提供一个与 [a2a-python](https://github.com/gaia-xyz/a2a-python) API 兼容的 Rust 版本，实现：
+本项目旨在提供一个与 [a2a-python](https://github.com/a2aproject/a2a-python) API 兼容的 Rust 版本，实现：
 
 - **协议对齐**: 100% 符合 A2A 协议规范
 - **Python 兼容**: 与 a2a-python 完全互操作
@@ -273,8 +273,8 @@ cargo run --example rust_server
 
 ## 🔗 相关链接
 
-- [A2A Protocol Specification](https://github.com/gaia-xyz/a2a-python)
-- [a2a-python](https://github.com/gaia-xyz/a2a-python) - Python 原始实现
+- [A2A Protocol Specification](https://github.com/a2aproject/a2a-python)
+- [a2a-python](https://github.com/a2aproject/a2a-python) - Python 原始实现
 - [类型对齐文档](docs/python_rust_type_alignment_summary.md)
 - [功能对比文档](docs/comprehensive_python_rust_comparison.md)
 

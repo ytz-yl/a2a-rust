@@ -209,7 +209,7 @@ impl Default for InMemoryQueueManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::a2a::server::events::{Event, InMemoryEventQueue};
+    use crate::a2a::server::events::Event;
     use crate::a2a::core_types::*;
 
     #[tokio::test]

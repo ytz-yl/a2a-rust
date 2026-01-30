@@ -8,7 +8,6 @@
 
 use crate::{Task, A2AError};
 use async_trait::async_trait;
-use uuid::Uuid;
 
 /// Task Store interface for persisting and retrieving Task objects
 /// 
@@ -31,7 +30,7 @@ pub trait TaskStore: Send + Sync {
     }
     
     /// Lists tasks by context ID (optional implementation)
-    async fn list_by_context(&self, context_id: &str) -> Result<Vec<Task>, A2AError> {
+    async fn list_by_context(&self, _context_id: &str) -> Result<Vec<Task>, A2AError> {
         Err(A2AError::unsupported_operation("Task listing by context not supported"))
     }
 }
@@ -141,18 +140,15 @@ impl TaskStore for DatabaseTaskStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Message, Part, Role, TaskStatus, TaskState};
+    use crate::{TaskStatus, TaskState};
     
     fn create_test_task(id: &str, context_id: &str) -> Task {
-        let task_id_uuid = Uuid::parse_str(id).unwrap_or_else(|_| Uuid::new_v4());
-        let context_id_uuid = Uuid::parse_str(context_id).unwrap_or_else(|_| Uuid::new_v4());
-        
         Task {
-            id: task_id_uuid,
-            context_id: context_id_uuid,
+            id: id.to_string(),
+            context_id: context_id.to_string(),
             status: TaskStatus {
                 state: TaskState::Submitted,
-                timestamp: Some(chrono::Utc::now()),
+                timestamp: Some(chrono::Utc::now().to_rfc3339()),
                 message: None,
             },
             artifacts: None,

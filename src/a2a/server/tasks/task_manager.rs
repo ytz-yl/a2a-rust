@@ -525,7 +525,7 @@ mod tests {
         let task_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let context_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
         
-        let mut task = Task {
+        let task = Task {
             id: task_id.to_string(),
             context_id: context_id.to_string(),
             status: TaskStatus {

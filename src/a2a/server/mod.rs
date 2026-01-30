@@ -5,7 +5,9 @@
 
 pub mod apps;
 pub mod context;
+pub mod events;
 pub mod request_handlers;
+pub mod tasks;
 
 // Re-export commonly used types
 pub use context::{ServerCallContext, ServerCallContextBuilder};

@@ -4,8 +4,8 @@
 //! of the asynchronous event system in the A2A server.
 
 use crate::a2a::error::A2AError;
-use crate::a2a::core_types::{Message, TaskStatus, Role, Part};
-use crate::{Task, Artifact, TaskStatusUpdateEvent, TaskArtifactUpdateEvent};
+use crate::a2a::core_types::Message;
+use crate::{Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
