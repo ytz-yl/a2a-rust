@@ -287,7 +287,6 @@ impl EventQueue for InMemoryEventQueueChild {
 mod tests {
     use super::*;
     use crate::a2a::core_types::*;
-    use tokio::time::{sleep, Duration};
 
     #[tokio::test]
     async fn test_basic_queue_operations() {

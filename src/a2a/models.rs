@@ -951,3 +951,63 @@ impl ListTaskPushNotificationConfigParams {
         self
     }
 }
+
+/// Represents a successful JSON-RPC response for the `message/stream` method
+/// The server may send multiple response objects for a single request
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SendStreamingMessageSuccessResponse {
+    /// The identifier established by the client
+    pub id: Option<serde_json::Value>,
+    /// The version of the JSON-RPC protocol. MUST be exactly "2.0"
+    pub jsonrpc: String,
+    /// The result, which can be a Message, Task, or a streaming update event
+    pub result: SendStreamingMessageResult,
+}
+
+impl SendStreamingMessageSuccessResponse {
+    pub fn new(id: Option<serde_json::Value>, result: SendStreamingMessageResult) -> Self {
+        Self {
+            id,
+            jsonrpc: "2.0".to_string(),
+            result,
+        }
+    }
+}
+
+/// The result type for streaming message responses
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SendStreamingMessageResult {
+    Task(Task),
+    Message(Message),
+    TaskStatusUpdateEvent(TaskStatusUpdateEvent),
+    TaskArtifactUpdateEvent(TaskArtifactUpdateEvent),
+}
+
+/// Represents a JSON-RPC response for the `message/stream` method
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SendStreamingMessageResponse {
+    Success(SendStreamingMessageSuccessResponse),
+    Error(crate::a2a::jsonrpc::JSONRPCErrorResponse),
+}
+
+impl SendStreamingMessageResponse {
+    pub fn success(id: Option<serde_json::Value>, result: SendStreamingMessageResult) -> Self {
+        Self::Success(SendStreamingMessageSuccessResponse::new(id, result))
+    }
+
+    pub fn error(id: Option<serde_json::Value>, error: crate::a2a::jsonrpc::JSONRPCError) -> Self {
+        Self::Error(crate::a2a::jsonrpc::JSONRPCErrorResponse::new(
+            id.and_then(|id| {
+                match id {
+                    serde_json::Value::String(s) => Some(crate::a2a::jsonrpc::JSONRPCId::String(s)),
+                    serde_json::Value::Number(n) => n.as_i64().map(crate::a2a::jsonrpc::JSONRPCId::Number),
+                    serde_json::Value::Null => Some(crate::a2a::jsonrpc::JSONRPCId::Null),
+                    _ => None,
+                }
+            }),
+            error,
+        ))
+    }
+}

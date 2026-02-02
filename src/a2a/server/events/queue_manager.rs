@@ -98,7 +98,6 @@ pub fn validate_queue_id(id: &str) -> Result<(), QueueManagerError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::a2a::server::events::QueueConfig;
 
     #[test]
     fn test_validate_queue_id() {
