@@ -99,9 +99,9 @@ impl ClientFactory {
     /// Register JSON-RPC transport
     fn register_jsonrpc_transport(&mut self) {
         let producer: TransportProducer = Box::new(
-            move |card, url, _config, interceptors| {
+            move |card, url, config, interceptors| {
                 Box::pin(async move {
-                    let transport = JsonRpcTransport::new(url, Some(card))?;
+                    let transport = JsonRpcTransport::new_with_config(url, Some(card), config)?;
                     let transport_with_interceptors = transport.with_interceptors(interceptors);
                     Ok(Box::new(transport_with_interceptors) as Box<dyn ClientTransport>)
                 })

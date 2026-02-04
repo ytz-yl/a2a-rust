@@ -73,9 +73,9 @@ impl SqlitePushNotificationConfigStore {
             // and store it alongside the ciphertext. For simplicity and alignment 
             // with the basic idea, we'll use a fixed nonce here, but NOTE: 
             // this is NOT secure for production.
-            let nonce = Nonce::from_slice(b"unique nonce"); 
+            let nonce = Nonce::from([0u8; 12]); // 12-byte nonce for AES-GCM
             
-            let ciphertext = cipher.encrypt(nonce, data)
+            let ciphertext = cipher.encrypt(&nonce, data)
                 .map_err(|e| A2AError::internal(&format!("Encryption failed: {}", e)))?;
             
             Ok(ciphertext)
@@ -89,9 +89,9 @@ impl SqlitePushNotificationConfigStore {
             let cipher = Aes256Gcm::new_from_slice(&key_bytes)
                 .map_err(|e| A2AError::internal(&format!("Invalid encryption key: {}", e)))?;
             
-            let nonce = Nonce::from_slice(b"unique nonce");
+            let nonce = Nonce::from([0u8; 12]); // 12-byte nonce for AES-GCM
             
-            let plaintext = cipher.decrypt(nonce, data)
+            let plaintext = cipher.decrypt(&nonce, data)
                 .map_err(|e| A2AError::internal(&format!("Decryption failed: {}", e)))?;
             
             Ok(plaintext)

@@ -99,6 +99,35 @@ impl JsonRpcTransport {
         })
     }
     
+    /// Create a new JSON-RPC transport with custom configuration
+    pub fn new_with_config(
+        url: String,
+        agent_card: Option<AgentCard>,
+        config: crate::a2a::client::config::ClientConfig,
+    ) -> Result<Self, A2AError> {
+        // Use the timeout from config, or default to 30 seconds
+        let timeout_duration = config.timeout.unwrap_or(Duration::from_secs(30));
+        
+        let client = reqwest::Client::builder()
+            .timeout(timeout_duration)
+            .build()
+            .map_err(|e| A2AError::transport_error(format!("Failed to create HTTP client: {}", e)))?;
+        
+        let needs_extended_card = agent_card
+            .as_ref()
+            .map(|card| card.supports_authenticated_extended_card.unwrap_or(false))
+            .unwrap_or(true);
+        
+        Ok(Self {
+            url,
+            client,
+            agent_card,
+            interceptors: Vec::new(),
+            extensions: config.extensions,
+            needs_extended_card,
+        })
+    }
+    
     /// Create a transport with custom HTTP client
     pub fn with_client(
         url: String,
@@ -263,14 +292,14 @@ impl JsonRpcTransport {
         }
     }
     
-    /// Send a streaming JSON-RPC request
+    /// Send a streaming JSON-RPC request with SSE support
     async fn send_streaming_request(
         &self,
         method: &str,
         params: Value,
         context: Option<&ClientCallContext>,
         extensions: Option<Vec<String>>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<TaskOrMessage, A2AError>> + Send>>, A2AError> {
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<TaskOrMessage, A2AError>> + Send + '_>>, A2AError> {
         let request = create_jsonrpc_request(method, params)?;
         
         // Get HTTP args from context
@@ -287,8 +316,11 @@ impl JsonRpcTransport {
         // Apply interceptors
         let (payload, mut http_kwargs) = self.apply_interceptors(method, request, http_kwargs, context).await?;
         
-        // Build headers
-        let headers = self.build_headers(extensions.as_ref(), &http_kwargs);
+        // Build headers for SSE
+        let mut headers = self.build_headers(extensions.as_ref(), &http_kwargs);
+        
+        // Override Accept header for SSE
+        headers.insert("Accept", "text/event-stream".parse().unwrap());
         
         // Remove headers from http_kwargs since they're handled separately
         http_kwargs.remove("headers");
@@ -298,14 +330,13 @@ impl JsonRpcTransport {
             .and_then(|v| v.as_u64())
             .map(Duration::from_secs);
         
-        // Build request
+        // Send the streaming POST request
         let mut request_builder = self.client.post(&self.url).headers(headers).json(&payload);
         
         if let Some(timeout_duration) = timeout {
             request_builder = request_builder.timeout(timeout_duration);
         }
         
-        // Send request and get SSE stream
         let response = request_builder
             .send()
             .await
@@ -319,9 +350,202 @@ impl JsonRpcTransport {
             ));
         }
         
-        // For now, we'll return a simplified implementation
-        // SSE streaming requires additional dependencies and more complex implementation
-        Err(A2AError::unsupported_operation("Streaming requests not fully implemented yet"))
+        // Check if response is SSE
+        let content_type = response.headers().get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        
+        if !content_type.contains("text/event-stream") {
+            // If not SSE, fallback to regular JSON response
+            let response_value: Value = response
+                .json()
+                .await
+                .map_err(|e| A2AError::json_error(format!("Failed to parse JSON response: {}", e)))?;
+            
+            let jsonrpc_response = parse_jsonrpc_response(response_value)?;
+            
+            let result = match jsonrpc_response {
+                JSONRPCResponse::Success(success_response) => {
+                    // Try to parse the result as TaskOrMessage
+                    if let Ok(task_or_message) = serde_json::from_value::<TaskOrMessage>(success_response.result.clone()) {
+                        task_or_message
+                    } else if let Ok(task) = serde_json::from_value::<Task>(success_response.result.clone()) {
+                        TaskOrMessage::Task(task)
+                    } else if let Ok(message) = serde_json::from_value::<Message>(success_response.result) {
+                        TaskOrMessage::Message(message)
+                    } else {
+                        return Err(A2AError::json_error("Failed to parse response as Task or Message".to_string()));
+                    }
+                }
+                JSONRPCResponse::Error(error_response) => {
+                    return Err(A2AError::jsonrpc_error(error_response.error.code, error_response.error.message));
+                }
+            };
+            
+            // Return a single-item stream for non-streaming response
+            let single_item_stream = async_stream::stream! {
+                yield Ok(result);
+            };
+            
+            return Ok(Box::pin(single_item_stream));
+        }
+        
+        // Handle SSE response using a proper async stream
+        let byte_stream = response.bytes_stream();
+        let stream = async_stream::stream! {
+            let mut buffer = String::new();
+            use futures::StreamExt;
+            
+            futures::pin_mut!(byte_stream);
+            
+            while let Some(chunk_result) = byte_stream.next().await {
+                match chunk_result {
+                    Ok(chunk) => {
+                        let chunk_str = String::from_utf8_lossy(&chunk);
+                        buffer.push_str(&chunk_str);
+                        
+                        // Process complete SSE messages
+                        while let Some(double_newline_pos) = buffer.find("\n\n") {
+                            let message_end = double_newline_pos;
+                            let message = &buffer[..message_end];
+                            let remaining_buffer = buffer[message_end + 2..].to_string();
+                            
+                            if !message.trim().is_empty() {
+                                match self.parse_sse_message(message.trim()) {
+                                    Ok(Some(task_or_message)) => {
+                                        yield Ok(task_or_message);
+                                    }
+                                    Ok(None) => {
+                                        // Continue, this might be a comment or empty event
+                                    }
+                                    Err(e) => {
+                                        yield Err(e);
+                                    }
+                                }
+                            }
+                            
+                            // Update buffer with remaining content
+                            buffer = remaining_buffer;
+                        }
+                    }
+                    Err(e) => {
+                        yield Err(A2AError::transport_error(format!("Stream error: {}", e)));
+                        break;
+                    }
+                }
+            }
+            
+            // Process any remaining content in buffer
+            if !buffer.trim().is_empty() {
+                match self.parse_sse_message(buffer.trim()) {
+                    Ok(Some(task_or_message)) => {
+                        yield Ok(task_or_message);
+                    }
+                    Ok(None) => {
+                        // Ignore final empty content
+                    }
+                    Err(e) => {
+                        yield Err(e);
+                    }
+                }
+            }
+        };
+
+        Ok(Box::pin(stream))
+    }
+    
+    /// Parse a single SSE message and convert to TaskOrMessage
+    fn parse_sse_message(&self, message: &str) -> Result<Option<TaskOrMessage>, A2AError> {
+        let mut data_lines = Vec::new();
+        let mut _event_type = None;
+        
+        // Parse SSE fields
+        for line in message.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with(':') {
+                // Skip empty lines and comments
+                continue;
+            }
+            if line.starts_with("data:") {
+                // Handle both "data:" and "data: " formats
+                if line.len() > 5 {
+                    let data_content = line[5..].trim_start();
+                    data_lines.push(data_content);
+                } else {
+                    data_lines.push("");
+                }
+            } else if line.starts_with("event:") {
+                let event_content = line[6..].trim_start();
+                _event_type = Some(event_content);
+            }
+        }
+        
+        if data_lines.is_empty() {
+            return Ok(None);
+        }
+        
+        // Combine data lines (SSE spec says to join with newline)
+        let data = data_lines.join("\n");
+        
+        // Skip empty data
+        if data.trim().is_empty() {
+            return Ok(None);
+        }
+        
+        // Parse JSON data
+        let json_value: Value = serde_json::from_str(&data)
+            .map_err(|e| A2AError::json_error(format!("Failed to parse SSE data as JSON: {} (data: {})", e, data)))?;
+        
+        // Check if this is a JSON-RPC streaming response
+        if let Some(result) = json_value.get("result") {
+            // Try to parse as SendStreamingMessageResult
+            if let Ok(streaming_result) = serde_json::from_value::<SendStreamingMessageResult>(result.clone()) {
+                return Ok(Some(self.convert_streaming_result(streaming_result)?));
+            }
+        }
+        
+        // Try to parse directly as TaskOrMessage
+        if let Ok(task_or_message) = serde_json::from_value::<TaskOrMessage>(json_value.clone()) {
+            return Ok(Some(task_or_message));
+        }
+        
+        // Try to parse as Task
+        if let Ok(task) = serde_json::from_value::<Task>(json_value.clone()) {
+            return Ok(Some(TaskOrMessage::Task(task)));
+        }
+        
+        // Try to parse as Message
+        if let Ok(message) = serde_json::from_value::<Message>(json_value.clone()) {
+            return Ok(Some(TaskOrMessage::Message(message)));
+        }
+        
+        // Try to parse as TaskStatusUpdateEvent
+        if let Ok(task_update) = serde_json::from_value::<TaskStatusUpdateEvent>(json_value.clone()) {
+            return Ok(Some(TaskOrMessage::TaskUpdate(task_update)));
+        }
+        
+        // Try to parse as TaskArtifactUpdateEvent
+        if let Ok(artifact_update) = serde_json::from_value::<TaskArtifactUpdateEvent>(json_value.clone()) {
+            return Ok(Some(TaskOrMessage::TaskArtifactUpdateEvent(artifact_update)));
+        }
+        
+        Err(A2AError::json_error(format!("Failed to parse SSE data as TaskOrMessage. JSON: {}", json_value)))
+    }
+    
+    /// Convert SendStreamingMessageResult to TaskOrMessage
+    fn convert_streaming_result(&self, result: SendStreamingMessageResult) -> Result<TaskOrMessage, A2AError> {
+        match result {
+            SendStreamingMessageResult::Task(task) => Ok(TaskOrMessage::Task(task)),
+            SendStreamingMessageResult::TaskStatusUpdateEvent(update) => {
+                // Convert task status update to a TaskStatusUpdateEvent
+                Ok(TaskOrMessage::TaskUpdate(update))
+            }
+            SendStreamingMessageResult::TaskArtifactUpdateEvent(update) => {
+                // Convert artifact update to a TaskArtifactUpdateEvent
+                Ok(TaskOrMessage::TaskArtifactUpdateEvent(update))
+            }
+            SendStreamingMessageResult::Message(message) => Ok(TaskOrMessage::Message(message)),
+        }
     }
 }
 
@@ -350,12 +574,12 @@ impl ClientTransport for JsonRpcTransport {
         }
     }
     
-    async fn send_message_streaming(
-        &self,
+    async fn send_message_streaming<'a>(
+        &'a self,
         params: MessageSendParams,
         context: Option<&ClientCallContext>,
         extensions: Option<Vec<String>>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<TaskOrMessage, A2AError>> + Send>>, A2AError> {
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<TaskOrMessage, A2AError>> + Send + 'a>>, A2AError> {
         let params_value = serde_json::to_value(params)
             .map_err(|e| A2AError::json_error(format!("Failed to serialize params: {}", e)))?;
         
@@ -422,12 +646,12 @@ impl ClientTransport for JsonRpcTransport {
             .map_err(|e| A2AError::json_error(format!("Failed to parse TaskPushNotificationConfig response: {}", e)))
     }
     
-    async fn resubscribe(
-        &self,
+    async fn resubscribe<'a>(
+        &'a self,
         request: TaskIdParams,
         context: Option<&ClientCallContext>,
         extensions: Option<Vec<String>>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<ClientEvent, A2AError>> + Send>>, A2AError> {
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<ClientEvent, A2AError>> + Send + 'a>>, A2AError> {
         let params_value = serde_json::to_value(request)
             .map_err(|e| A2AError::json_error(format!("Failed to serialize params: {}", e)))?;
         

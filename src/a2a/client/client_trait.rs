@@ -137,12 +137,12 @@ pub trait Client: Send + Sync {
     ) -> Result<TaskPushNotificationConfig, crate::a2a::error::A2AError>;
     
     /// Resubscribe to a task's event stream
-    async fn resubscribe(
-        &self,
+    async fn resubscribe<'a>(
+        &'a self,
         request: TaskIdParams,
         context: Option<&ClientCallContext>,
         extensions: Option<Vec<String>>,
-    ) -> Pin<Box<dyn Stream<Item = Result<ClientEvent, crate::a2a::error::A2AError>> + Send>>;
+    ) -> Pin<Box<dyn Stream<Item = Result<ClientEvent, crate::a2a::error::A2AError>> + Send + 'a>>;
     
     /// Retrieve the agent's card
     async fn get_card(
@@ -377,12 +377,12 @@ impl Client for BaseClient {
         self.transport.get_task_callback(request, context, extensions).await
     }
     
-    async fn resubscribe(
-        &self,
+    async fn resubscribe<'a>(
+        &'a self,
         request: TaskIdParams,
         context: Option<&ClientCallContext>,
         extensions: Option<Vec<String>>,
-    ) -> Pin<Box<dyn Stream<Item = Result<ClientEvent, crate::a2a::error::A2AError>> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = Result<ClientEvent, crate::a2a::error::A2AError>> + Send + 'a>> {
         if !self.config.streaming || !self.card.capabilities.streaming.unwrap_or(false) {
             return Box::pin(stream! {
                 yield Err(crate::a2a::error::A2AError::unsupported_operation(
@@ -447,12 +447,12 @@ pub trait ClientTransport: Send + Sync {
     ) -> Result<TaskOrMessage, crate::a2a::error::A2AError>;
     
     /// Send a streaming message
-    async fn send_message_streaming(
-        &self,
+    async fn send_message_streaming<'a>(
+        &'a self,
         params: MessageSendParams,
         context: Option<&ClientCallContext>,
         extensions: Option<Vec<String>>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<TaskOrMessage, crate::a2a::error::A2AError>> + Send>>, crate::a2a::error::A2AError>;
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<TaskOrMessage, crate::a2a::error::A2AError>> + Send + 'a>>, crate::a2a::error::A2AError>;
     
     /// Get a task
     async fn get_task(
@@ -487,12 +487,12 @@ pub trait ClientTransport: Send + Sync {
     ) -> Result<TaskPushNotificationConfig, crate::a2a::error::A2AError>;
     
     /// Resubscribe to task events
-    async fn resubscribe(
-        &self,
+    async fn resubscribe<'a>(
+        &'a self,
         request: TaskIdParams,
         context: Option<&ClientCallContext>,
         extensions: Option<Vec<String>>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<ClientEvent, crate::a2a::error::A2AError>> + Send>>, crate::a2a::error::A2AError>;
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<ClientEvent, crate::a2a::error::A2AError>> + Send + 'a>>, crate::a2a::error::A2AError>;
     
     /// Get agent card
     async fn get_card(
