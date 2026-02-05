@@ -108,7 +108,8 @@ pub trait RequestHandler: Send + Sync {
 }
 
 /// Result type for message send operations
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
 pub enum MessageSendResult {
     Task(Task),
     Message(Message),
