@@ -140,15 +140,17 @@ impl Artifact {
 /// Enum that can represent either a Task or a Message
 /// This is useful for API responses that can return either type
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind")]
+#[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum TaskOrMessage {
     /// A task response
     Task(Task),
     /// A message response
     Message(Message),
     /// A task status update event
+    #[serde(alias = "task-status-update", rename = "status-update")]
     TaskUpdate(TaskStatusUpdateEvent),
     /// A task artifact update event
+    #[serde(rename = "artifact-update")]
     TaskArtifactUpdateEvent(TaskArtifactUpdateEvent),
 }
 

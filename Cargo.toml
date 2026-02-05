@@ -42,6 +42,14 @@ tokio-test = "0.4"
 serde_test = "1.0"
 mockito = "1.4"
 
+[[example]]
+name = "push_notification_server"
+path = "examples/push_notification/a2a_server.rs"
+
+[[example]]
+name = "push_notification_client"
+path = "examples/push_notification/client_with_webhook.rs"
+
 [features]
 default = []
 grpc = []
