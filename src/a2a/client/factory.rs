@@ -6,6 +6,8 @@
 use crate::a2a::client::config::ClientConfig;
 use crate::a2a::client::client_trait::{Client, BaseClient, ClientCallInterceptor, Consumer, ClientTransport};
 use crate::a2a::client::transports::jsonrpc::JsonRpcTransport;
+use crate::a2a::client::transports::grpc::GrpcTransport;
+use crate::a2a::client::transports::rest::RestTransport;
 use crate::a2a::client::card_resolver::A2ACardResolver;
 use crate::a2a::models::*;
 use crate::a2a::core_types::*;
@@ -114,16 +116,47 @@ impl ClientFactory {
         );
     }
     
-    /// Register REST transport (placeholder)
+    /// Register REST transport
     fn register_rest_transport(&mut self) {
-        // Note: REST transport not implemented yet
-        // This is a placeholder for future implementation
+        let producer: TransportProducer = Box::new(
+            move |card, url, config, interceptors| {
+                Box::pin(async move {
+                    let transport = RestTransport::new_with_config(url, Some(card), config)?;
+                    let transport_with_interceptors = transport.with_interceptors(interceptors);
+                    Ok(Box::new(transport_with_interceptors) as Box<dyn ClientTransport>)
+                })
+            }
+        );
+        
+        self.registry.insert(
+            TransportProtocol::HttpJson.to_string(),
+            producer,
+        );
     }
     
-    /// Register gRPC transport (placeholder)
+    /// Register gRPC transport
     fn register_grpc_transport(&mut self) {
-        // Note: gRPC transport not implemented yet
-        // This is a placeholder for future implementation
+        let producer: TransportProducer = Box::new(
+            move |card, url, config, interceptors| {
+                Box::pin(async move {
+                    // For gRPC, we need to create a tonic Channel
+                    let channel = tonic::transport::Channel::from_shared(url.clone())
+                        .map_err(|e| A2AError::transport_error(format!("Failed to create gRPC channel: {}", e)))?
+                        .connect()
+                        .await
+                        .map_err(|e| A2AError::transport_error(format!("Failed to connect gRPC channel: {}", e)))?;
+                    
+                    // Create gRPC transport with configuration and interceptors
+                    let transport = GrpcTransport::new_with_config(url, channel, Some(card), config, interceptors)?;
+                    Ok(Box::new(transport) as Box<dyn ClientTransport>)
+                })
+            }
+        );
+        
+        self.registry.insert(
+            TransportProtocol::Grpc.to_string(),
+            producer,
+        );
     }
     
     /// Register a new transport producer for a given transport label

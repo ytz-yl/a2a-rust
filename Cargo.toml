@@ -36,6 +36,12 @@ sqlx = { version = "0.7", features = ["runtime-tokio", "tls-rustls", "sqlite", "
 # Encryption
 aes-gcm = "0.10"
 base64ct = "=1.6.0"
+# gRPC dependencies
+tonic = { version = "0.11", features = ["transport", "prost"] }
+prost = "0.12"
+http = "1.0"
+http-body = "1.0"
+hyper = { version = "1.2", features = ["server", "http1", "http2", "client"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

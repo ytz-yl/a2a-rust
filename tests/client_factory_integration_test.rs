@@ -101,12 +101,12 @@ impl a2a_rust::a2a::client::client_trait::ClientTransport for MockTransport {
         }
     }
     
-    async fn send_message_streaming(
-        &self,
+    async fn send_message_streaming<'a>(
+        &'a self,
         _params: MessageSendParams,
         _context: Option<&ClientCallContext>,
         _extensions: Option<Vec<String>>,
-    ) -> Result<Pin<Box<dyn futures::Stream<Item = Result<TaskOrMessage, A2AError>> + Send>>, A2AError> {
+    ) -> Result<Pin<Box<dyn futures::Stream<Item = Result<TaskOrMessage, A2AError>> + Send + 'a>>, A2AError> {
         Err(A2AError::unsupported_operation("Streaming not supported in mock"))
     }
     
@@ -155,12 +155,12 @@ impl a2a_rust::a2a::client::client_trait::ClientTransport for MockTransport {
         Err(A2AError::unsupported_operation("Task callbacks not supported in mock"))
     }
     
-    async fn resubscribe(
-        &self,
+    async fn resubscribe<'a>(
+        &'a self,
         _request: TaskIdParams,
         _context: Option<&ClientCallContext>,
         _extensions: Option<Vec<String>>,
-    ) -> Result<Pin<Box<dyn futures::Stream<Item = Result<a2a_rust::a2a::client::client_trait::ClientEvent, A2AError>> + Send>>, A2AError> {
+    ) -> Result<Pin<Box<dyn futures::Stream<Item = Result<a2a_rust::a2a::client::client_trait::ClientEvent, A2AError>> + Send + 'a>>, A2AError> {
         Err(A2AError::unsupported_operation("Resubscription not supported in mock"))
     }
     

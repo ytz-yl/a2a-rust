@@ -8,6 +8,7 @@ pub mod constants;
 pub mod message;
 pub mod parts;
 pub mod task;
+pub mod proto_utils;
 
 // Re-export utility functions for convenience
 pub use artifact::*;
@@ -28,3 +29,4 @@ pub use parts::{
 };
 
 pub use task::*;
+pub use proto_utils::*;

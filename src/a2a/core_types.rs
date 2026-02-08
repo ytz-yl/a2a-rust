@@ -338,6 +338,9 @@ pub struct PartBase {
     pub metadata: Option<HashMap<String, serde_json::Value>>,
 }
 
+/// Type alias for metadata (key-value pairs)
+pub type Metadata = HashMap<String, serde_json::Value>;
+
 /// Represents the status of a task at a specific point in time
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskStatus {

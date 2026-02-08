@@ -288,7 +288,7 @@ impl RestHandler {
         }
     }
 
-    /// Streaming: emit JSON string per event (no "data:" SSE framing)
+    /// Streaming: emit SSE events ("data: {json}\n\n")
     fn events_to_json_stream(
         &self,
         event_stream: Pin<Box<dyn Stream<Item = Result<Event, A2AError>> + Send>>,
@@ -304,16 +304,19 @@ impl RestHandler {
 
                 let response = SendStreamingMessageResponse::success(None, result);
 
-                serde_json::to_string(&response).map_err(|e| {
-                    let err = A2AError::internal(&format!(
-                        "Failed to serialize streaming response to JSON: {}",
-                        e
-                    ));
-                    RestErrorResponse {
-                        code: err.code(),
-                        message: err.message().to_string(),
+                match serde_json::to_string(&response) {
+                    Ok(json_str) => Ok(format!("data: {}\n\n", json_str)),
+                    Err(e) => {
+                        let err = A2AError::internal(&format!(
+                            "Failed to serialize streaming response to JSON: {}",
+                            e
+                        ));
+                        Err(RestErrorResponse {
+                            code: err.code(),
+                            message: err.message().to_string(),
+                        })
                     }
-                })
+                }
             }
             Err(e) => Err(RestErrorResponse {
                 code: e.code(),
